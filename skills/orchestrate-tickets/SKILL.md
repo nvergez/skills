@@ -1,6 +1,6 @@
 ---
 name: orchestrate-tickets
-description: Orchestrate parallel implementation of the tickets produced by /to-tickets. Builds the blocked-by dependency graph, spawns one Orca child worktree + agent per unblocked ticket, loops implementation and /code-review in each worker until no findings remain, merges each child branch back into the integration branch, and repeats until every ticket is done.
+description: Implement a /to-tickets ticket set in parallel with Orca — dependency graph → child worktree per ticket → implement/review loop → land each branch, until every ticket lands.
 disable-model-invocation: true
 metadata:
   author: nvergez
@@ -10,9 +10,9 @@ metadata:
 
 Implement a full set of tickets produced by `/to-tickets` (mattpocock/skills), in parallel, using Orca (stablyai/orca) for isolation and coordination.
 
-You are the **coordinator**. You stay in the current worktree, on the **integration branch** (the feature branch the tickets belong to). Workers run in Orca child worktrees, one per ticket. You never implement tickets yourself — you build the graph, dispatch, supervise, merge, and repeat.
+You are the **coordinator**. You stay in the current worktree, on the **integration branch** (the feature branch the tickets belong to). Workers run in Orca child worktrees, one per ticket. You never implement tickets yourself — you build the graph, dispatch, supervise, land, and repeat.
 
-The core correctness rule: **a child worktree is created only when its ticket becomes unblocked**, so it branches off the integration branch *after* all its blockers have been merged. Never pre-create worktrees for blocked tickets.
+The core correctness rule is **just-in-time worktrees**: a child worktree is created only when its ticket becomes unblocked, so it branches off the integration branch *after* all its blockers have landed.
 
 ## Arguments
 
@@ -63,13 +63,15 @@ orca orchestration dispatch --task <task_id> --to <handle> --inject --json
 orca worktree set --worktree id:<worktree-id> --workspace-status in-progress --json
 ```
 
-- `--base-branch <integration-branch>` is deliberate: this is stacked work; children must branch from the integration branch including previously merged tickets.
+- `--base-branch <integration-branch>` is deliberate: this is stacked work (see just-in-time worktrees).
 - From the create JSON, record the mapping **ticket → worktree id, branch name, agent terminal handle** (`result.agentTerminalHandle`, falling back to `result.startupTerminal.handle`). If a handle later goes stale, re-resolve via `orca terminal list --worktree id:<worktree-id> --json` and continue with the replacement only — never dual-send.
 - Set the ticket's `**Status:**` line to `in-progress`.
 
+A ticket counts as dispatched once the mapping is recorded, its `Status` line says `in-progress`, and the card status is set. Repeat until every slot up to `max-parallel` is filled or the frontier is empty.
+
 ### Worker brief template
 
-The spec passed to `task-create` must inline the **full ticket file content** — `.scratch/` is often gitignored, so the ticket file may not exist in the child worktree. Note: Matt's `/implement` skill is user-invoked-only (`disable-model-invocation`), so a worker cannot load it from an injected prompt; its process is embedded below instead, and the worker uses `/tdd` and `/code-review` (both model-invocable) directly.
+The spec passed to `task-create` must inline the **full ticket file content** — `.scratch/` is often gitignored, so the ticket file may not exist in the child worktree. The brief embeds `/implement`'s process (user-invoked skills can't be loaded from an injected prompt); workers use `/tdd` and `/code-review` directly.
 
 ```text
 You are implementing one ticket of the feature '<feature-slug>' in an isolated
@@ -86,7 +88,9 @@ done.
 Step 2 — Review loop: run the /code-review skill with the fixed point above.
 The ticket below is the spec for its Spec axis. Fix every finding on both
 axes, commit, and re-run /code-review. Repeat until a round reports no
-findings. Hard cap: 5 rounds — if findings persist, stop and report them.
+findings. Hard cap: 5 rounds — if findings persist, send worker_done with
+subject "Failed: review not converging" and the remaining findings in the
+body.
 
 Step 3 — Verify every acceptance criterion and that the full test suite
 passes. Commit all work.
@@ -102,7 +106,7 @@ AskUserQuestion.
 
 ### 3. Supervise
 
-Run a rolling wait loop — never sleep/poll, never idle-chat:
+Run a rolling wait loop and stay in it for the whole run — between messages you are blocked in `check --wait`, not back at the prompt and not in a sleep/poll loop:
 
 ```bash
 orca orchestration check --wait --types worker_done,escalation,decision_gate --timeout-ms 900000 --json
@@ -130,11 +134,11 @@ git merge --no-ff <child-branch> -m "ticket <NN>: <title>"
 orca worktree set --worktree id:<worktree-id> --workspace-status completed --comment "merged into <integration-branch>" --json
 ```
 
-Merge completions one at a time, in arrival order — never merge two child branches concurrently.
+Merge completions one at a time, in arrival order.
 
 ### 5. Refill the frontier
 
-After each landing, recompute the frontier — landing a ticket may unblock others, and their fresh worktrees will now include the merged work. Start new workers (step 2) up to `max-parallel`. Loop steps 3–5 until no ticket is `ready-for-agent` or `in-progress`.
+After each landing, recompute the frontier — landing a ticket may unblock others; their worktrees are cut just-in-time (step 2). Start new workers up to `max-parallel`. Loop steps 3–5 until no ticket is `ready-for-agent` or `in-progress`.
 
 ### 6. Finish
 
