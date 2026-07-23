@@ -15,6 +15,7 @@ The theme of this repo is **skills that orchestrate other skills** — encoding 
 | --- | --- |
 | [orchestrate-tickets](skills/orchestrate-tickets/SKILL.md) | After `/to-tickets`: build the blocked-by dependency graph, spawn one Orca child worktree + agent per unblocked ticket, loop implementation + `/code-review` in each until clean, merge each child branch back into the feature branch, repeat until all tickets are done. |
 | [merge-confidence](skills/merge-confidence/SKILL.md) | Grade a PR or branch across five evidence axes (correctness via `/code-review`, CI, tests, spec, blast radius) and derive a merge-confidence verdict — band + 0–100 index computed mechanically from the grades. |
+| [exercise-pr](skills/exercise-pr/SKILL.md) | Pre-registered live test pass over a PR: post the test plan as a PR comment, exercise each test via Orca's browser / direct API calls / dev-DB reads against the locally launched app, then post a results comment answering every registered test. |
 
 ## Prerequisites
 
