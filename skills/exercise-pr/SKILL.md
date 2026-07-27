@@ -34,6 +34,8 @@ A **test** exercises one behavior the diff changes, and declares up front:
 
 Verdicts: **pass** / **fail** / **blocked** (could not execute — reason cited). Every verdict cites **evidence**: a screenshot path, a request/response excerpt, a query and its rows. A verdict with no observable behind it is `blocked`, not `pass`.
 
+Every registered test keeps its id and behavior through to its verdict. Tests discovered mid-run may be added, flagged "added during execution".
+
 ## Process
 
 ### 1. Scope
@@ -55,7 +57,7 @@ Out of scope: …
 Results follow in a second comment after execution.
 ```
 
-Once posted, the plan is **registered**: tests discovered mid-run may be *added*, marked "added during execution" in the results.
+Once posted, the plan is **registered**.
 
 ### 3. Stand up
 
@@ -63,17 +65,22 @@ Launch the app with the project's dev command as a background process and wait u
 
 ### 4. Execute
 
-Run each test in id order:
+Dispatch one subagent — the **runner** — to execute the whole registered plan. A runner executes; it does not redesign. One runner, not one per test: the tests share the app, the tab, and the dev DB.
 
-- `browser` — drive via `orca` browser commands; capture a screenshot for each decisive assertion.
-- `api` — direct HTTP against the local base URL; capture the request and a response excerpt.
-- `db` assertions — read-only queries; capture the query and the returned rows.
+The dispatch carries:
 
-A test is done when each of its assertions has evidence and the verdict follows from them. A `fail` is a result, not an obstacle: record it and move to the next test.
+- the registered plan table, verbatim — the runner's entire brief,
+- the base URL and the tab opened in step 3, plus dev-DB connection details,
+- `.scratch/e2e/` as the evidence directory,
+- a pointer to this SKILL.md's § Test model, by absolute path — the `drive`, assertion, and verdict rules stay defined there, not restated in the prompt.
+
+The runner works in id order: `browser` tests drive via `orca` browser commands, screenshotting each decisive assertion; `api` tests hit the local base URL, capturing request and a response excerpt; `db` assertions are read-only queries captured with their rows. A `fail` is a result, not an obstacle — record it and move to the next test. It returns one row per test: id, verdict, evidence path, and a one-line justification.
+
+Execution is complete when the returned rows carry a verdict for every registered id. Re-dispatch once for any ids the runner dropped; still missing grades `blocked`.
 
 ### 5. Report
 
-Post the second PR comment — a verdict table answering every registered test, same ids and order, added tests appended:
+Build the comment from the runner's returned rows, citing its evidence paths as returned rather than re-opening them — the runner's justification line is the accountability. Post it as the second PR comment: a verdict table answering every registered test, same ids and order, added tests appended.
 
 ```markdown
 ## 🧪 E2E results
